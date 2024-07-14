@@ -1,0 +1,79 @@
+volumes:
+  db-data:
+
+services:
+  db:
+    container_name: imperio-db
+    build:
+      context: ./infra/docker/mysql
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - 3310:3306
+    volumes:
+      - db-data:/var/lib/mysql
+    env_file:
+      - .env
+    networks:
+      - imperio-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: imperio_app:0.1
+    container_name: imperio-app
+    build:
+      context: ./infra/docker/php
+      dockerfile: Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+      target: ${APP_BUILD_TARGET:-development}
+    volumes:
+      - type: bind
+        source: ./
+        target: /workspace
+    env_file:
+      - .env
+    networks:
+      - imperio-network
+    entrypoint: ./infra/docker/php/entrypoint.sh
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    container_name: imperio-proxy
+    build:
+      context: ./infra/docker/nginx
+      dockerfile: Dockerfile
+    ports:
+      - 1650:80
+    volumes:
+      - type: bind
+        source: ./
+        target: /workspace
+    networks:
+      - imperio-network
+    depends_on:
+      - app
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: imperio-phpmyadmin
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - 3311:80
+    depends_on:
+      - db
+    networks:
+      - imperio-network
+
+networks:
+  imperio-network:
+    driver: bridge
